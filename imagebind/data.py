@@ -18,7 +18,8 @@ from pytorchvideo.data.clip_sampling import ConstantClipsPerVideoSampler
 from pytorchvideo.data.encoded_video import EncodedVideo
 from torchvision import transforms
 from torchvision.transforms._transforms_video import NormalizeVideo
-
+import cv2
+import numpy as np
 from imagebind.models.multimodal_preprocessors import SimpleTokenizer
 
 DEFAULT_AUDIO_FRAME_SHIFT_MS = 10  # in milliseconds
@@ -70,7 +71,7 @@ def waveform2melspec(waveform, sample_rate, num_mel_bins, target_length):
 
 
 def get_clip_timepoints(clip_sampler, duration):
-    # Read out all clips in this video
+    # Read out all clips in this videof
     all_clips_timepoints = []
     is_last_clip = False
     end = 0.0
@@ -83,9 +84,7 @@ def get_clip_timepoints(clip_sampler, duration):
 def load_and_transform_vision_data(image_paths, device):
     if image_paths is None:
         return None
-
     image_outputs = []
-
     data_transform = transforms.Compose(
         [
             transforms.Resize(224, interpolation=transforms.InterpolationMode.BICUBIC),
@@ -104,8 +103,72 @@ def load_and_transform_vision_data(image_paths, device):
 
         image = data_transform(image).to(device)
         image_outputs.append(image)
+
     return torch.stack(image_outputs, dim=0)
 
+def load_and_transform_thermal_data(thermal_paths, device):
+    if thermal_paths is None:
+        return None
+
+    thermal_outputs = []
+    for thermal_path in thermal_paths:
+        data_transform = transforms.Compose(
+            [
+                transforms.Resize(
+                    224, interpolation=transforms.InterpolationMode.BICUBIC
+                ),
+                transforms.CenterCrop(224),
+                transforms.ToTensor(),
+                transforms.Normalize(
+                    mean=(0.5),
+                    std=(0.5),
+                ),
+            ]
+        )
+        # with open(thermal_path, "rb") as fopen:
+        #     thermal = Image.open(fopen).convert("L")
+        thermal = cv2.imread(thermal_path, cv2.IMREAD_UNCHANGED)
+        thermal_gray = cv2.imread(thermal_path, cv2.IMREAD_GRAYSCALE)
+        thermal_gray_pil = Image.fromarray(thermal_gray).convert("L")
+        thermal = data_transform(thermal_gray_pil).to(device)
+        thermal_outputs.append(thermal)
+    return torch.stack(thermal_outputs, dim=0)
+
+
+def min_max_normalize(thermal):
+    """
+    Normalize the thermal image to the range [0, 1].
+    Args:
+        thermal (ndarray): The thermal image to normalize.
+    Returns:
+        normalized_thermal (ndarray): The normalized thermal image.
+    """
+    min_val = np.min(thermal)
+    max_val = np.max(thermal)
+    normalized_thermal = (thermal - min_val) / (max_val - min_val)
+    return normalized_thermal * 255
+
+def save_rgb(thermal_outputs):
+    thermal1 = thermal_outputs[0].cpu().permute(1, 2, 0).numpy()
+    thermal2 = thermal_outputs[1].cpu().permute(1, 2, 0).numpy()
+    thermal3 = thermal_outputs[2].cpu().permute(1, 2, 0).numpy()
+    thermal1 = min_max_normalize(thermal1)
+    thermal2 = min_max_normalize(thermal2)
+    thermal3 = min_max_normalize(thermal3)
+    cv2.imwrite('/media/ailab/HDD1/Workspace/src/Project/Drone24/detection/ImageBind/outputs/exp3_llvip/img_norm1.png', thermal1)
+    cv2.imwrite('/media/ailab/HDD1/Workspace/src/Project/Drone24/detection/ImageBind/outputs/exp3_llvip/img_norm2.png', thermal2)
+    cv2.imwrite('/media/ailab/HDD1/Workspace/src/Project/Drone24/detection/ImageBind/outputs/exp3_llvip/img_norm3.png', thermal3)
+
+def save(thermal_outputs):
+    thermal1 = thermal_outputs[0].cpu().numpy()[0]
+    thermal2 = thermal_outputs[1].cpu().numpy()[0]
+    thermal3 = thermal_outputs[2].cpu().numpy()[0]
+    thermal1 = min_max_normalize(thermal1)
+    thermal2 = min_max_normalize(thermal2)
+    thermal3 = min_max_normalize(thermal3)
+    cv2.imwrite('/media/ailab/HDD1/Workspace/src/Project/Drone24/detection/ImageBind/outputs/exp3_llvip/thermal_norm1.png', thermal1)
+    cv2.imwrite('/media/ailab/HDD1/Workspace/src/Project/Drone24/detection/ImageBind/outputs/exp3_llvip/thermal_norm2.png', thermal2)
+    cv2.imwrite('/media/ailab/HDD1/Workspace/src/Project/Drone24/detection/ImageBind/outputs/exp3_llvip/thermal_norm3.png', thermal3)
 
 def load_and_transform_text(text, device):
     if text is None:
